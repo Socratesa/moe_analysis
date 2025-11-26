@@ -3,7 +3,7 @@ from transformers import BitsAndBytesConfig
 import torch
 import sys
 
-model_name = "/root/autodl-tmp/Qwen/Qwen3-30B-A3B-Instruct-2507" 
+model_name = "/home/lhd/Qwen/Qwen3-30B-A3B-Instruct-2507" 
 
 # load the tokenizer and the model
 bnb_config = BitsAndBytesConfig(

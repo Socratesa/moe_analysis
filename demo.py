@@ -12,19 +12,22 @@ import logging
 # ================= ⚙️ 用户配置区域 =================
 
 # 1. 模型 ID
-MODEL_ID = "/root/autodl-tmp/Qwen/Qwen3-30B-A3B-Instruct-2507"
+MODEL_ID = "/home/lhd/Qwen/Qwen3-30B-A3B-Instruct-2507"
 
 # 2. 分析模式开关
 #   - 设为整数 (例如 10): 只分析第 10 层 (速度最快，适合调试)
 #   - 设为 None: 分析所有 MoE 层 (适合全量分析，生成每一层的热力图)
-TARGET_LAYER = 40
+TARGET_LAYER = 30
+ENABLE_COUNT_FILTER = True  # 开关：True 表示开启限制，False 表示不限制
+MIN_COUNT_THRESHOLD = 50    # 阈值：限制的最小次数
 
 # 3. 数据配置
+OUTPUT_DIR = "moe_analysis_report"
 NUM_SAMPLES = 100        # 采样数量 (样本越多越准)
 MAX_SEQ_LEN = 1024       # 序列长度
 BATCH_SIZE = 4           # 适当增大 Batch 可加速推理
-MAX_TOP_PAIRS = 20       # 全局 Top 关联对数量（写在文件中）
-OUTPUT_DIR = "moe_analysis_report"
+NUM_COACTIVATORS = 10    # 每个专家 top co-activators 数量
+NUM_TOP_ACTIVE = 20      # 打印热门专家数量  
 
 # ===================================================
 
@@ -250,6 +253,28 @@ class MoEContextAnalyzer:
         logger.info(f"📄 Detailed Text Report: {report_path}")
 
     def _report_top_pairs(self, layer_idx, prob_np, counts, file_handle):
+        total_activations = counts.sum().item()
+        total_tokens = total_activations / self.top_k if self.top_k > 0 else 1.0
+        
+        # 按激活次数降序排列
+        sorted_indices = torch.argsort(counts, descending=True)
+        
+        header_active = f"\n--- Layer {layer_idx} Top {NUM_TOP_ACTIVE} Active Experts ---"
+        print(header_active)
+        file_handle.write(header_active + "\n")
+        
+        for i in range(min(NUM_TOP_ACTIVE, len(counts))):
+            idx = sorted_indices[i].item()
+            cnt = counts[idx].item()
+            
+            # === 修改：计算相对于 Token 总数的概率 ===
+            ratio = cnt / total_tokens if total_tokens > 0 else 0
+            
+            # 格式: Expert XX (Count/TotalTokens) Ratio
+            line = f"Expert {idx:02d} ({int(cnt)}/{int(total_tokens)}) {ratio:.2%}"
+            print(line)
+            file_handle.write("  " + line + "\n")
+
         """在控制台打印 Top 关联对，并写入文件"""
         # 将矩阵展平并排序，找到概率最高的索引
         flat_indices = np.argsort(np.nan_to_num(prob_np).flatten())[::-1]
@@ -267,7 +292,7 @@ class MoEContextAnalyzer:
             val = prob_np[r, c]
             
             # 过滤：如果是 NaN，则忽略
-            if np.isnan(val):
+            if np.isnan(val) or (ENABLE_COUNT_FILTER and counts[r] < MIN_COUNT_THRESHOLD):
                 continue
             
             line = f"Exp {r:02d} -> Exp {c:02d} : {val:.1%} (Pivot Count: {int(counts[r])})"
@@ -277,10 +302,10 @@ class MoEContextAnalyzer:
                 print(line)
             
             # 文件写入前 20 个
-            if count_printed < MAX_TOP_PAIRS:
+            if count_printed < 20:
                 file_handle.write("  " + line + "\n")
             
-            if count_printed >= MAX_TOP_PAIRS:
+            if count_printed >= 20:
                 break
 
             count_printed += 1
@@ -288,11 +313,12 @@ class MoEContextAnalyzer:
         # 2. 每个专家的 Top Co-activators (更详细的列表)
         file_handle.write("\n>>> Top Co-activators per Expert:\n")
         for r in range(self.num_experts):
-            
+            if ENABLE_COUNT_FILTER and counts[r] < MIN_COUNT_THRESHOLD: continue
+
             # 获取该专家的行
             row = np.nan_to_num(prob_np[r])
-            # 排序找到 Top 3
-            top_indices = np.argsort(row)[::-1][:3]
+            # 排序找到 Top NUM_COACTIVATORS
+            top_indices = np.argsort(row)[::-1][:NUM_COACTIVATORS]
             
             partners = []
             for c in top_indices:
