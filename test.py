@@ -23,8 +23,8 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 output_file = "qwen3-30b-a3b-ins.txt"
-    with open(output_file, "w", encoding="utf-8") as f:
-        print(model, file=f)
+with open(output_file, "w", encoding="utf-8") as f:
+    print(model, file=f)
         
 print(f"✅ 成功！模型结构已保存到: {output_file}")
 
