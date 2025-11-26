@@ -1,6 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import BitsAndBytesConfig
 import torch
+import sys
 
 model_name = "/root/autodl-tmp/Qwen/Qwen3-30B-A3B-Instruct-2507" 
 
@@ -20,6 +21,12 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto",
     trust_remote_code=True
 )
+
+output_file = "qwen3-30b-a3b-ins.txt"
+    with open(output_file, "w", encoding="utf-8") as f:
+        print(model, file=f)
+        
+print(f"✅ 成功！模型结构已保存到: {output_file}")
 
 # prepare the model input
 prompt = "Give me a short introduction to large language model."

@@ -23,6 +23,7 @@ TARGET_LAYER = 40
 NUM_SAMPLES = 100        # 采样数量 (样本越多越准)
 MAX_SEQ_LEN = 1024       # 序列长度
 BATCH_SIZE = 4           # 适当增大 Batch 可加速推理
+MAX_TOP_PAIRS = 20       # 全局 Top 关联对数量（写在文件中）
 OUTPUT_DIR = "moe_analysis_report"
 
 # ===================================================
@@ -265,8 +266,8 @@ class MoEContextAnalyzer:
             c = idx % self.num_experts
             val = prob_np[r, c]
             
-            # 过滤：如果是 NaN 或 专家激活次数太少(<50)，则忽略
-            if np.isnan(val) or counts[r] < 50:
+            # 过滤：如果是 NaN，则忽略
+            if np.isnan(val):
                 continue
             
             line = f"Exp {r:02d} -> Exp {c:02d} : {val:.1%} (Pivot Count: {int(counts[r])})"
@@ -276,15 +277,17 @@ class MoEContextAnalyzer:
                 print(line)
             
             # 文件写入前 20 个
-            if count_printed < 20:
+            if count_printed < MAX_TOP_PAIRS:
                 file_handle.write("  " + line + "\n")
-                
+            
+            if count_printed >= MAX_TOP_PAIRS:
+                break
+
             count_printed += 1
             
         # 2. 每个专家的 Top Co-activators (更详细的列表)
         file_handle.write("\n>>> Top Co-activators per Expert:\n")
         for r in range(self.num_experts):
-            if counts[r] < 50: continue
             
             # 获取该专家的行
             row = np.nan_to_num(prob_np[r])
@@ -294,11 +297,9 @@ class MoEContextAnalyzer:
             partners = []
             for c in top_indices:
                 val = row[c]
-                if val > 0.05: # 阈值 5%
-                    partners.append(f"Exp{c:02d}({val:.0%})")
+                partners.append(f"Exp{c:02d}({val:.0%})")
             
-            if partners:
-                file_handle.write(f"  Expert {r:02d}: " + ", ".join(partners) + "\n")
+            file_handle.write(f"  Expert {r:02d}: " + ", ".join(partners) + "\n")
         
         file_handle.write("\n")
 
